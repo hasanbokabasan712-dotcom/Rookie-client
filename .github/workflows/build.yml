@@ -15,14 +15,12 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: gradle wrapper
-        run: |
-          chmod +x gradlew || true
-          gradle wrapper --gradle-version 8.5 || true
-          chmod +x gradlew
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.5
 
       - name: build
-        run: ./gradlew build --no-daemon --stacktrace
+        run: gradle build --no-daemon --stacktrace
 
       - uses: actions/upload-artifact@v4
         with:
