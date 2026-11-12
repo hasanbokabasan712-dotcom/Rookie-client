@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "rookieclient",
+  "version": "${version}",
+  "name": "Rookie Client",
+  "description": "Aim assist, trigger bot, target ESP.",
+  "authors": ["Rookie"],
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["dev.rookie.client.RookieClient"]
+  },
+  "depends": {
+    "fabricloader": ">=0.15.11",
+    "minecraft": "1.20.1",
+    "java": ">=17",
+    "fabric-api": "*"
+  }
+}
