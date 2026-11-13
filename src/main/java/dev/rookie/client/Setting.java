@@ -3,12 +3,13 @@ package dev.rookie.client;
 import java.util.Locale;
 
 public final class Setting {
-    public enum Type { BOOL, SLIDER }
+    public enum Type { BOOL, SLIDER, CHOICE }
 
     public final String name;
     public final Type type;
     public boolean on;
     public double value, min, max, step;
+    public String[] options = new String[0];
 
     private Setting(String name, Type type) {
         this.name = name;
@@ -30,6 +31,13 @@ public final class Setting {
         return s;
     }
 
+    public static Setting choice(String name, int def, String... options) {
+        Setting s = new Setting(name, Type.CHOICE);
+        s.options = options;
+        s.value = def;
+        return s;
+    }
+
     public void setRatio(double r) {
         r = Math.max(0, Math.min(1, r));
         double raw = min + r * (max - min);
@@ -40,8 +48,17 @@ public final class Setting {
         return (value - min) / (max - min);
     }
 
+    public int index() {
+        return (int) value;
+    }
+
+    public void cycle() {
+        value = (index() + 1) % options.length;
+    }
+
     public String text() {
         if (type == Type.BOOL) return on ? "AÇIK" : "KAPALI";
+        if (type == Type.CHOICE) return options[index()];
         return step < 1 ? String.format(Locale.ROOT, "%.2f", value) : String.valueOf((int) value);
     }
 }

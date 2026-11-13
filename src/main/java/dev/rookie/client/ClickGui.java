@@ -1,18 +1,20 @@
 package dev.rookie.client;
 
+import com.mojang.blaze3d.systems.RenderSystem;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import net.minecraft.client.gui.screen.Screen;
-import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.render.BufferBuilder;
 import net.minecraft.client.render.GameRenderer;
 import net.minecraft.client.render.Tessellator;
 import net.minecraft.client.render.VertexFormat;
 import net.minecraft.client.render.VertexFormats;
 import net.minecraft.client.util.math.MatrixStack;
-import org.joml.Matrix4f;
 import net.minecraft.text.Text;
+import org.joml.Matrix4f;
 import org.lwjgl.glfw.GLFW;
 
 public final class ClickGui extends Screen {
@@ -22,19 +24,29 @@ public final class ClickGui extends Screen {
     private static final int TRACK = 0xFF333333;
     private static final int WHITE = 0xFFFFFFFF;
     private static final int GREY = 0xFFAAAAAA;
-    private static final int COL_W = 130;
+    private static final int COL_W = 110;
+    private static final int GAP = 6;
+    private static final int X0 = 8;
+    private static final int TOP = 20;
+    private static final int HEAD_H = 18;
     private static final int ROW_H = 14;
-    private static final List<String> CATS = List.of("Combat", "Render");
+    private static final List<String> CATS = List.of("Combat", "Render", "Movement");
 
-    private enum Kind { ROW, BOOL, SLIDER, BIND }
-    private record Hit(int x, int y, int w, int h, Kind kind, Module mod, Setting set) {}
+    private enum Kind { HEADER, ROW, BOOL, SLIDER, CHOICE, BIND }
+    private record Hit(int x, int y, int w, int h, Kind kind, Module mod, Setting set, String cat) {}
 
     private final List<Hit> hits = new ArrayList<>();
+    private final Map<String, int[]> pos = new HashMap<>();
+    private String dragCat;
+    private int dragOffX, dragOffY;
     private Hit dragging;
     private Module binding;
 
     public ClickGui() {
         super(Text.literal("Rookie"));
+        for (int i = 0; i < CATS.size(); i++) {
+            pos.put(CATS.get(i), new int[] { X0 + i * (COL_W + GAP), TOP });
+        }
     }
 
     @Override
@@ -46,19 +58,21 @@ public final class ClickGui extends Screen {
     public void render(MatrixStack m, int mx, int my, float delta) {
         hits.clear();
         rect(m, 0, 0, width, height, 0x66000000);
-        for (int i = 0; i < CATS.size(); i++) {
-            column(m, CATS.get(i), 20 + i * (COL_W + 8), 20);
+        for (String cat : CATS) {
+            int[] p = pos.get(cat);
+            column(m, cat, p[0], p[1]);
         }
         String hint = binding != null
-                ? "Bir tuşa bas (ESC temizler, tık iptal)"
-                : "Sol tık: aç/kapat   Sağ tık: ayarlar   F12: menü";
+                ? "Bir tuşa bas (ESC temizler)"
+                : "Sol: aç/kapat  Sağ: ayar  Orta: tuş";
         textRenderer.draw(m, hint, 8, height - 14, GREY);
     }
 
     private void column(MatrixStack m, String cat, int x, int top) {
-        rect(m, x, top, x + COL_W, top + ROW_H + 4, ACCENT);
-        textRenderer.draw(m, cat, x + 6, top + 4, WHITE);
-        int y = top + ROW_H + 4;
+        rect(m, x, top, x + COL_W, top + HEAD_H, ACCENT);
+        textRenderer.draw(m, cat, x + 6, top + 5, WHITE);
+        hits.add(new Hit(x, top, COL_W, HEAD_H, Kind.HEADER, null, null, cat));
+        int y = top + HEAD_H;
 
         for (Module mod : Modules.ALL) {
             if (!mod.category.equals(cat)) continue;
@@ -67,7 +81,7 @@ public final class ClickGui extends Screen {
             textRenderer.draw(m, mod.name, x + 5, y + 3, WHITE);
             String key = mod.bind < 0 ? "" : "[" + keyName(mod.bind) + "]";
             textRenderer.draw(m, key, x + COL_W - 5 - textRenderer.getWidth(key), y + 3, GREY);
-            hits.add(new Hit(x, y, COL_W, ROW_H, Kind.ROW, mod, null));
+            hits.add(new Hit(x, y, COL_W, ROW_H, Kind.ROW, mod, null, null));
             y += ROW_H;
 
             if (mod.expanded) {
@@ -93,10 +107,14 @@ public final class ClickGui extends Screen {
             int bx = x + 5, bw = COL_W - 10, by = y + 12;
             rect(m, bx, by, bx + bw, by + 3, TRACK);
             rect(m, bx, by, bx + (int) (bw * s.ratio()), by + 3, ACCENT);
-            hits.add(new Hit(x, y, COL_W, h, Kind.SLIDER, mod, s));
-        } else {
-            hits.add(new Hit(x, y, COL_W, h, Kind.BOOL, mod, s));
         }
+
+        Kind kind = switch (s.type) {
+            case SLIDER -> Kind.SLIDER;
+            case CHOICE -> Kind.CHOICE;
+            default -> Kind.BOOL;
+        };
+        hits.add(new Hit(x, y, COL_W, h, kind, mod, s, null));
     }
 
     private void bindRow(MatrixStack m, Module mod, int x, int y) {
@@ -104,7 +122,7 @@ public final class ClickGui extends Screen {
         textRenderer.draw(m, "Tuş", x + 5, y + 3, GREY);
         String v = binding == mod ? "Bekle..." : keyName(mod.bind);
         textRenderer.draw(m, v, x + COL_W - 5 - textRenderer.getWidth(v), y + 3, binding == mod ? ACCENT : WHITE);
-        hits.add(new Hit(x, y, COL_W, ROW_H, Kind.BIND, mod, null));
+        hits.add(new Hit(x, y, COL_W, ROW_H, Kind.BIND, mod, null, null));
     }
 
     @Override
@@ -116,11 +134,21 @@ public final class ClickGui extends Screen {
         for (Hit h : hits) {
             if (!inside(h, mx, my)) continue;
             switch (h.kind()) {
+                case HEADER -> {
+                    if (button == 0) {
+                        int[] p = pos.get(h.cat());
+                        dragCat = h.cat();
+                        dragOffX = (int) mx - p[0];
+                        dragOffY = (int) my - p[1];
+                    }
+                }
                 case ROW -> {
                     if (button == 0) h.mod().enabled = !h.mod().enabled;
                     else if (button == 1) h.mod().expanded = !h.mod().expanded;
+                    else if (button == 2) binding = h.mod();
                 }
                 case BOOL -> h.set().on = !h.set().on;
+                case CHOICE -> h.set().cycle();
                 case SLIDER -> {
                     dragging = h;
                     setSlider(h, mx);
@@ -134,6 +162,12 @@ public final class ClickGui extends Screen {
 
     @Override
     public boolean mouseDragged(double mx, double my, int button, double dx, double dy) {
+        if (dragCat != null) {
+            int[] p = pos.get(dragCat);
+            p[0] = clamp((int) mx - dragOffX, 0, Math.max(0, width - COL_W));
+            p[1] = clamp((int) my - dragOffY, 0, Math.max(0, height - HEAD_H));
+            return true;
+        }
         if (dragging != null) {
             setSlider(dragging, mx);
             return true;
@@ -143,6 +177,7 @@ public final class ClickGui extends Screen {
 
     @Override
     public boolean mouseReleased(double mx, double my, int button) {
+        dragCat = null;
         dragging = null;
         return super.mouseReleased(mx, my, button);
     }
@@ -155,6 +190,10 @@ public final class ClickGui extends Screen {
             return true;
         }
         return super.keyPressed(key, scan, mods);
+    }
+
+    private static int clamp(int v, int lo, int hi) {
+        return Math.max(lo, Math.min(hi, v));
     }
 
     private static void setSlider(Hit h, double mx) {
